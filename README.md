@@ -1,2 +1,108 @@
-# Jejevekdn
-.
+# Options Engine
+
+Institutional-grade research-and-execution platform for **selling OTM options as iron
+condors** on liquid index/ETF products, driven by a **rough-volatility (rBergomi) price
+model**, a **calibrated regime layer**, and a **risk-sensitive reinforcement-learning
+decision core**, all wrapped in a deterministic hard risk supervisor.
+
+> **Read `SPEC.md` first.** It is the authoritative specification, including the honesty
+> boundaries (which goals are achievable and which were re-specified because the literal
+> version was impossible). This is a *short-volatility* strategy: frequent small gains,
+> infrequent large losses. The system is engineered to survive the tail, **not** to be
+> loss-free. See the risk disclaimer in `SPEC.md` §14.
+>
+> For the system map read `ARCHITECTURE.md`; for execution safety read
+> `src/options_engine/execution/SAFETY.md`.
+
+## Status
+
+All 14 build phases are complete. **~21,600 lines of Python** (14,195 source + 7,433 tests
+across 93 source / 90 test modules); **736 tests** (695 fast + 41 slow) all passing at
+**93% line/branch coverage**; `ruff` + `black` + `mypy --strict` all green.
+
+
+| Phase | Component | State |
+|------:|-----------|-------|
+| 1 | Foundation (config, errors, validation, RNG, logging, enums, time-grid) | ✅ complete, fully tested |
+| 2 | rBergomi simulation + variance reduction + MC diagnostics | ✅ complete, fully tested |
+| 3 | Pricing (analytic BS + MC), Greeks, iron-condor payoff/credit | ✅ complete, fully tested |
+| 4 | Calibration (H/η/ρ/ξ₀ + jumps, walk-forward) | ✅ complete, fully tested |
+| 5 | Distribution surrogate (monotone quantile net + MC fallback guardrail) | ✅ complete, fully tested |
+| 6 | Regime detection (Gaussian HMM + calibration + trade gate) | ✅ complete, fully tested |
+| 7 | Market-maker simulator (Avellaneda-Stoikov + obligations) + synthetic chain | ✅ complete, fully tested |
+| 8 | News/event gate (calendar blackout + breaking-news cool-off) | ✅ complete, fully tested |
+| 9 | Strategy (condor construction, Kelly sizing, entry/exit) + risk supervisor | ✅ complete, fully tested |
+| 10 | RL environment (Gymnasium POMDP + reward + safety overlay) | ✅ complete, fully tested |
+| 11 | RL agent (PPO + distributional critic, anti-collapse) | ✅ complete, fully tested |
+| 12 | Backtest engines + metrics (deflated Sharpe) + promotion gates | ✅ complete, fully tested |
+| 13–14 | Execution/OMS (idempotent, risk-gated) + IBKR adapter + fail-closed broker factory | ✅ complete, fully tested |
+
+The build proceeded phase-by-phase; **every phase shipped green** (lint + types + tests)
+before the next began, and later phases never weakened earlier tests.
+
+## Requirements
+
+- Python **3.11+** (developed/tested on 3.13).
+- See `pyproject.toml` for dependencies. The quant core needs `numpy` + `scipy` +
+  `pydantic`; the ML/RL (`torch`, `gymnasium`) and broker (`ib-insync`) integrations are
+  optional extras so the core can be installed and tested without the heavy deps.
+
+## Installation (development)
+
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev,rl]"   # core + dev tooling + the RL/ML stack
+```
+
+## Quality gates
+
+All of these must pass for any change to be considered mergeable (SPEC §10, §13):
+
+```bash
+make lint        # ruff
+make format      # black --check
+make typecheck   # mypy --strict
+make test        # pytest
+make cov         # pytest with coverage report
+make check       # all of the above
+```
+
+## Configuration & secrets
+
+Configuration is fully typed and validated at construction (`options_engine.core.config`).
+**Secrets are never stored in config** — they are referenced by environment-variable name
+via `SecretRef` and resolved at runtime, failing fast if unset. The only permitted
+placeholders anywhere in this project are external API keys / broker credentials / data
+endpoints, all injected through the environment.
+
+## Repository layout
+
+```
+options-engine/
+├─ SPEC.md                  # authoritative specification (read first)
+├─ ARCHITECTURE.md          # system map (read second)
+├─ README.md
+├─ pyproject.toml           # build, deps, tooling config
+├─ Makefile                 # quality-gate shortcuts
+├─ .github/workflows/ci.yml # CI: lint, types, fast + slow tests on 3.11–3.13
+├─ src/options_engine/
+│  ├─ core/                 # config, errors, validation, RNG, logging, enums, time
+│  ├─ models/rbergomi/      # rough-volatility price/vol simulator
+│  ├─ pricing/              # Black–Scholes, MC pricing, condor payoff/greeks
+│  ├─ calibration/          # rBergomi parameter estimation (walk-forward)
+│  ├─ surrogate/            # neural quantile distribution + MC fallback guardrail
+│  ├─ regime/               # HMM regime detection + trade gate
+│  ├─ market/               # market-maker simulator + synthetic options chain
+│  ├─ news/                 # scheduled-event + breaking-news gate
+│  ├─ strategy/             # condor selection, sizing, entry/exit, risk supervisor
+│  ├─ rl/                   # Gymnasium POMDP environment + reward + scenarios
+│  ├─ agent/                # PPO + distributional critic (the decision brain)
+│  ├─ backtest/             # metrics, engine, walk-forward CV, promotion gates
+│  ├─ execution/            # OMS, brokers, IBKR adapter, live-trading locks (SAFETY.md)
+│  └─ services/             # fail-closed broker factory
+└─ tests/                   # unit / property / integration tests mirroring src
+```
+
+## License
+
+Proprietary. All rights reserved.

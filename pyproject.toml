@@ -1,0 +1,128 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "options-engine"
+version = "0.1.0"
+description = "Institutional-grade OTM iron-condor options-selling engine (rough volatility + RL)."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+authors = [{ name = "Options Engine Team" }]
+
+# Runtime dependencies are pinned with lower bounds; the lockfile (to be added per
+# environment) pins exact versions for reproducible builds. The quant core requires
+# numpy + scipy + pydantic; heavy ML/RL deps (torch, gymnasium) and the broker SDK are
+# declared in optional groups so the core can be installed and tested in isolation.
+dependencies = [
+    "numpy>=1.26",
+    "scipy>=1.11",
+    "pydantic>=2.6",
+]
+
+[project.optional-dependencies]
+ml = ["torch>=2.2"]
+rl = ["torch>=2.2", "gymnasium>=0.29"]
+broker = ["ib-insync>=0.9.86"]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=4.1",
+    "hypothesis>=6.100",
+    "ruff>=0.4",
+    "black>=24.0",
+    "mypy>=1.10",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = "-ra --strict-markers --strict-config"
+xfail_strict = true
+filterwarnings = [
+    "error",
+    # ib_insync's eventkit calls deprecated asyncio.get_event_loop() at import time on
+    # Python 3.10+ when no running loop is present. This is an upstream issue (fixed in
+    # eventkit's newer releases) and does not affect the broker code, so we ignore it
+    # specifically rather than relaxing the project's strict warning policy.
+    "ignore::DeprecationWarning:eventkit",
+    "ignore::DeprecationWarning:asyncio.events",
+    # PyTorch's Transformer warns when ``norm_first=True`` is used (a known fast-path
+    # interaction that does not affect correctness); we deliberately keep norm_first
+    # for training stability, so we ignore the warning.
+    "ignore:enable_nested_tensor is True:UserWarning",
+    "ignore:None of the inputs have requires_grad=True:UserWarning",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: end-to-end / cross-module tests",
+    "property: property-based (Hypothesis) tests",
+]   
+
+[tool.coverage.run]
+branch = true
+source = ["options_engine"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "@(abc\\.)?abstractmethod",
+]
+
+[tool.ruff]
+line-length = 99
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "W",   # pyflakes / pycodestyle
+    "I",             # isort
+    "N",             # pep8-naming
+    "UP",            # pyupgrade
+    "B",             # bugbear
+    "C4",            # comprehensions
+    "SIM",           # simplify
+    "RUF",           # ruff-specific
+    "PL",            # pylint
+    "ARG",           # unused arguments
+    "PTH",           # use pathlib
+]
+ignore = [
+    "PLR0913",  # many arguments: financial models legitimately need them
+    "PLR2004",  # magic values: tolerated in tests
+    "PLR0911",  # many returns: sequential-guard filters (entry/exit/risk) are clearer flat
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["PLR2004", "ARG", "N802", "N806"]
+
+[tool.black]
+line-length = 99
+target-version = ["py311"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unreachable = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+no_implicit_optional = true
+show_error_codes = true
+plugins = ["pydantic.mypy"]
+mypy_path = "src"
+packages = ["options_engine"]
+
+# Third-party packages without complete type stubs. scipy ships no py.typed; ib_insync /
+# gymnasium / torch expose untyped surfaces we wrap behind our own typed APIs.
+[[tool.mypy.overrides]]
+module = ["ib_insync.*", "gymnasium.*", "scipy.*", "torch.*"]
+ignore_missing_imports = true
